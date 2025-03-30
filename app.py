@@ -6,7 +6,9 @@ from deepface import DeepFace
 
 # Initialize Flask
 app = Flask(__name__)
-
+@app.route('/')
+def home():
+    return "Welcome to the Home Page!"
 # Ensure images directory exists
 os.makedirs("images", exist_ok=True)
 
