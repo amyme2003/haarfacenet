@@ -1,18 +1,24 @@
 import firebase_admin
-from firebase_admin import credentials, firestore
+
 import numpy as np
 from flask import Flask, request, jsonify
 from deepface import DeepFace
-import os
+
 
 # Initialize Flask
 app = Flask(__name__)  
 
+import os
+from firebase_admin import credentials, firestore
 
-# Initialize Firebase
-cred = credentials.Certificate("face-recognition.json")  # Use your actual Firebase JSON key
+cred_path = os.getenv("FIREBASE_CRED_PATH")  # Load the path from environment variable
+if not cred_path:
+    raise ValueError("❌ FIREBASE_CRED_PATH environment variable not set!")
+
+cred = credentials.Certificate(cred_path)
 firebase_admin.initialize_app(cred)
 db = firestore.client()
+
 
 # Ensure images directory exists
 os.makedirs("images", exist_ok=True)
