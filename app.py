@@ -1,57 +1,29 @@
-import firebase_admin
-
 import numpy as np
+import os
+import json
 from flask import Flask, request, jsonify
 from deepface import DeepFace
 
-
 # Initialize Flask
-app = Flask(__name__)  
-
-import os
-from firebase_admin import credentials, firestore
-
-cred_path = os.getenv("FIREBASE_CRED_PATH")  # Load the path from environment variable
-if not cred_path:
-    raise ValueError("❌ FIREBASE_CRED_PATH environment variable not set!")
-
-cred = credentials.Certificate(cred_path)
-firebase_admin.initialize_app(cred)
-db = firestore.client()
-
+app = Flask(__name__)
 
 # Ensure images directory exists
 os.makedirs("images", exist_ok=True)
 
-# Function to save embeddings to Firestore
-def save_embedding(name, embedding):
-    embedding = np.array(embedding)
-    
-    if embedding.shape[0] != 128:
-        print(f"❌ Error: {name} embedding has incorrect shape {embedding.shape}, skipping save!")
-        return  # Skip saving incorrect embeddings
+# Embeddings file
+EMBEDDINGS_FILE = "embeddings.json"
 
-    db.collection("faces").document(name).set({  # Use consistent collection name
-        "name": name,
-        "embedding": embedding.tolist()  # Convert to list for Firestore
-    })
-    print(f"✅ Saved {name} with embedding shape {embedding.shape}")
+# Load existing embeddings from file
+def load_embeddings():
+    if os.path.exists(EMBEDDINGS_FILE):
+        with open(EMBEDDINGS_FILE, "r") as f:
+            return json.load(f)
+    return {}
 
-# Function to retrieve all embeddings from Firestore
-def get_all_embeddings():
-    docs = db.collection("faces").stream()  # Use the correct collection name
-    embeddings = {}
-
-    for doc in docs:
-        data = doc.to_dict()
-        if "embedding" in data:
-            embedding = np.array(data["embedding"])
-            if embedding.shape[0] == 128:  # Ensure valid shape
-                embeddings[doc.id] = embedding
-            else:
-                print(f"⚠️ Warning: Skipping {doc.id} due to incorrect embedding size {embedding.shape}")
-    
-    return embeddings
+# Save embeddings to file
+def save_embeddings(embeddings):
+    with open(EMBEDDINGS_FILE, "w") as f:
+        json.dump(embeddings, f)
 
 @app.route('/register', methods=['POST'])
 def register():
@@ -67,7 +39,9 @@ def register():
     try:
         # Generate face embedding
         embedding = DeepFace.represent(img_path=image_path, model_name="Facenet")[0]['embedding']
-        save_embedding(name, embedding)
+        embeddings = load_embeddings()
+        embeddings[name] = embedding  # Store as a list
+        save_embeddings(embeddings)
         return jsonify({"message": f"✅ Image added for {name}!"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -85,23 +59,20 @@ def recognize():
     try:
         # Generate embedding for input image
         embedding = np.array(DeepFace.represent(img_path=image_path, model_name="Facenet")[0]['embedding'])
-
-        stored_embeddings = get_all_embeddings()
+        embeddings = load_embeddings()
 
         best_match = {"name": "Unknown", "distance": float("inf")}
 
-        for name, stored_embedding in stored_embeddings.items():
-            if stored_embedding.shape[0] == 128:  # Ensure valid shape before comparing
-                distance = np.linalg.norm(stored_embedding - embedding)
-
-                if distance < best_match["distance"]:
-                    best_match = {"name": name, "distance": distance}
+        for name, stored_embedding in embeddings.items():
+            stored_embedding = np.array(stored_embedding)  # Convert back to numpy array
+            distance = np.linalg.norm(stored_embedding - embedding)
+            if distance < best_match["distance"]:
+                best_match = {"name": name, "distance": distance}
 
         if best_match["distance"] < 10:  # Adjust threshold based on testing
             return jsonify({"name": best_match["name"]}), 200
         else:
             return jsonify({"name": "Unknown"}), 200
-
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
