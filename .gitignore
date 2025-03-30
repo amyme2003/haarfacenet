@@ -1,3 +1,4 @@
 face-recognition.json # Prevents it from being committed again
 face-recognition.json
 face-recognition.json
+shape_predictor_68_face_landmarks.dat
